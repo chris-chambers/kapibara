@@ -1,7 +1,6 @@
 (ns kapibara.discovery
   "Facilities for discovering resources available in a Kubernetes cluster"
   (:require [clojure.core.async :refer [<! >!] :as async]
-            [clojure.spec-alpha2 :as s]
             [clojure.string :as str]
 
             [lambdaisland.uri :refer [uri] :as uri]

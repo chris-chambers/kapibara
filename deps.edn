@@ -1,10 +1,9 @@
 {:paths ["resources" "src"]
- :deps {org.clojure/clojure {:mvn/version "RELEASE"}
+ :deps {org.clojure/clojure {:mvn/version "1.8.0"}
         org.clojure/core.async {:mvn/version "0.4.500"}
         org.clojure/data.json {:mvn/version "0.2.6"}
-        org.clojure/spec-alpha2 {:git/url "https://github.com/clojure/spec-alpha2.git"
-                                 :sha "aaadd79b1644bc73d1c4283532a7b59ef382a671"}
-        clj-http {:mvn/version "3.10.0"}
+
+        clj-http-lite {:mvn/version "0.3.0"}
         lambdaisland/uri {:mvn/version "1.1.0"}
         less-awful-ssl {:mvn/version "1.0.2"}}
  :aliases

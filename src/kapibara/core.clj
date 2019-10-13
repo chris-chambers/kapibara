@@ -3,10 +3,9 @@
   (:require [clojure.core.async :refer [>!!] :as async]
             [clojure.data.json :as json]
             [clojure.java.io :as io]
-            [clojure.spec-alpha2 :as s]
             [clojure.string :as str]
 
-            [clj-http.client :as http]
+            [clj-http.lite.client :as http]
             [lambdaisland.uri :refer [uri] :as uri]))
 
 
@@ -81,13 +80,17 @@
         (let [req-opts (request-options client options)
               resp (http/request req-opts)]
           (deliver p-request (:request resp))
-          (with-open [body (:body resp)]
+          (with-open [^java.io.InputStream body (:body resp)]
             (read-json-stream ch body)))
         (catch Exception e
           (>!! ch {::error e}))
         (finally
           (async/close! ch))))
-    (->Request ch (fn [] (.abort (:http-req @p-request))))))
+    (->Request ch (fn []
+                    (throw (Exception. "abort! cannot be implemented with clj-http-lite. Waiting on GraalVM 19.3, for JDK 11 and the new HTTPClient"))
+                    #_(let [^org.apache.http.client.methods.AbortableHttpRequest req
+                          (:http-req @p-request)]
+                      (.abort req))))))
 
 
 (defn update-request-chan

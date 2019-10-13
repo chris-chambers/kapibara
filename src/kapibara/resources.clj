@@ -3,7 +3,6 @@
   the `kapibara.discovery`).  Wraps the core Kapibara client to provide
   convenient resource-centric requests."
   (:require [clojure.data.json :as json]
-            [clojure.spec-alpha2 :as s]
             [clojure.string :as str]
 
             [lambdaisland.uri :refer [uri] :as uri]
