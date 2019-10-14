@@ -15,16 +15,17 @@
    (merge {:server/uri (uri server)} options)))
 
 
-;; TODO: Support authentication via the following keys
-:auth/username
-:auth/password
+(comment
+  ;; TODO: Support authentication via the following keys
+  :auth/username
+  :auth/password
 
-:auth/ca-cert
-:auth/client-cert
-:auth/client-key
+  :auth/ca-cert
+  :auth/client-cert
+  :auth/client-key
 
-:auth/oauth-token
-:auth/oauth-token-fn
+  :auth/oauth-token
+  :auth/oauth-token-fn)
 
 
 (def ^:private clj-http-key-whitelist
@@ -89,8 +90,8 @@
     (->Request ch (fn []
                     (throw (Exception. "abort! cannot be implemented with clj-http-lite. Waiting on GraalVM 19.3, for JDK 11 and the new HTTPClient"))
                     #_(let [^org.apache.http.client.methods.AbortableHttpRequest req
-                          (:http-req @p-request)]
-                      (.abort req))))))
+                            (:http-req @p-request)]
+                        (.abort req))))))
 
 
 (defn update-request-chan
