@@ -5,17 +5,46 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
 
-            [clj-http.lite.client :as http]
-            [lambdaisland.uri :refer [uri] :as uri]))
+            #_[clj-http.lite.client :as http]
+            [lambdaisland.uri :refer [uri] :as uri])
+  (:import [java.net.http HttpClient HttpRequest HttpClient$Version]))
 
 
-(defn make-client
-  ([server] (make-client server nil))
-  ([server options]
-   (merge {:server/uri (uri server)} options)))
+(defn client
+  [options]
+  (.. (HttpClient/newBuilder)
+      build)
+  )
 
+
+(defn request
+  [{server-uri :server/uri
+    request-uri :request/uri}]
+
+  (let [u (java.net.URI/create (str (uri/join server-uri request-uri)))]
+    (.. (HttpRequest/newBuilder)
+        (uri u)
+        build)))
+
+(defn send!
+  [^HttpClient clt req]
+
+  (.send clt req ))
 
 (comment
+
+  (clojure.reflect/reflect (HttpRequest/newBuilder))
+
+  (uri/uri "http://localhost:8081")
+
+  (let [c (client nil)
+        r (request {:server/uri "http://localhost:8081"
+                    :request/uri "api/v1"})]
+    #_(.sendAsync c  )
+    r
+    )
+
+
   ;; TODO: Support authentication via the following keys
   :auth/username
   :auth/password
@@ -47,6 +76,24 @@
       req-opts)))
 
 
+(defn- build-request
+  [c options]
+  (let [url (str (uri/join (:server/uri client) (:uri options)))
+        req-opts (merge {:url           url
+                         ;; TODO: Move insecure calculation to wherever
+                         ;;       authentication options are calculated.
+                         :insecure?     true
+                         :save-request? true}
+                        (select-keys options clj-http-key-whitelist))]
+    (if-let [interceptor (:interceptor options)]
+      (interceptor client options req-opts)
+      req-opts)
+
+
+
+    ))
+
+
 (defn- read-json-stream
   [to-chan ^java.io.InputStream from-stream]
   (loop [rdr (io/reader from-stream)]
@@ -72,7 +119,7 @@
   [req]
   ((abort-fn req)))
 
-(defn request
+#_(defn request
   [client options]
   (let [ch (async/chan)
         p-request (promise)]
@@ -103,7 +150,7 @@
 ;;       `Request` objects, since using them after this call could be an error.
 (defn merge-requests
   [reqs]
-  (let [reqs' (into [] reqs)]
+  (let [reqs' (vec reqs)]
     (->Request
      (async/merge (map deref reqs'))
      (fn [] (run! #(%) (map abort-fn reqs'))))))
@@ -111,21 +158,21 @@
 
 (comment
 
-  (def client (make-client "http://localhost:8080"))
+  (def c (client "http://localhost:8080"))
 
-  (def x (request client
+  (def x (request c
                   {:method :get
                    :uri "/api/v1/namespaces/default/configmaps"}))
 
   (def x (merge-requests
           [
            (update-request-chan
-            (request client
+            (request c
                      {:method :get
                       :uri "/api/v1/namespaces/default/configmaps/foo"})
             #(let [ch (async/chan 1 (map (fn [x] :bonk)))]
                (async/pipe % ch)))
-           (request client
+           (request c
                     {:method :get
                      :uri "/api/v1/namespaces/default/configmaps/bar"})]))
 
@@ -133,8 +180,8 @@
 
   (abort! x)
 
-  (async/<!! (async/into [] (request client {:uri "/apis"
-                                             :method :get
-                                             :query {:watch true}})))
+  (async/<!! (async/into [] (request c {:uri "/apis"
+                                        :method :get
+                                        :query {:watch true}})))
 
   )
