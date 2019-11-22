@@ -18,7 +18,8 @@
 
 (defn get-api-resources
   [client group-version]
-  (k/request client {:method :get :uri (res/make-path group-version)}))
+  (k/send! client
+           (k/request client {:method :get :uri (res/make-path group-version)})))
 
 
 (defn get-api-groups
@@ -26,8 +27,8 @@
   (let [ch (async/chan)]
     ;; FIXME: error handling for requests (if any error, die)
     (async/go
-      (let [core-info (<! @(k/request client {:method :get :uri "/api"}))
-            groups (<! @(k/request client {:method :get :uri "/apis"}))
+      (let [core-info (<! @(k/send! client (k/request client {:method :get :uri "/api"})))
+            groups (<! @(k/send! client (k/request client {:method :get :uri "/apis"})))
             core-versions (into [] (map #(hash-map :groupVersion %
                                                    :version %))
                                 (:versions core-info))
@@ -36,13 +37,13 @@
                         :preferredVersion (get core-versions 0)}]
         (>! ch (update groups :groups #(into [] (concat [core-group] %))))))
     ;; FIXME: Implement aborting.
-    (k/->Request ch nil)))
+    (k/->Response ch nil)))
 
 
 (comment
   (do
     (require '[clojure.core.async :refer [<!!]])
-    (def client (k/make-client "http://localhost:8080")))
+    (def client (k/client {:uri "http://localhost:8001"})))
 
   (<!! @(get-api-resources client {:groupVersion "v1"}))
   (<!! @(get-api-groups client))

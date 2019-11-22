@@ -5,47 +5,32 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
 
-            #_[clj-http.lite.client :as http]
-            [lambdaisland.uri :refer [uri] :as uri])
-  (:import [java.net.http HttpClient HttpRequest HttpClient$Version]))
+            [lambdaisland.uri :refer [uri] :as uri]
+
+            [kapibara.http :as http])
+
+  (:import [java.net.http HttpResponse]))
 
 
+;; TODO: Decide whether the base URI should be attached to a client.  It's
+;;       convenient (especially for `kapibara.resources/specialize`), but is it
+;;       a good thing to do?
 (defn client
-  [options]
-  (.. (HttpClient/newBuilder)
-      build)
-  )
+  ([{:keys [uri] :as options}]
+   {:http-client (http/client options)
+    :uri uri}))
 
 
 (defn request
-  [{server-uri :server/uri
-    request-uri :request/uri}]
+  [client {request-uri :uri
+           :as options}]
 
-  (let [u (java.net.URI/create (str (uri/join server-uri request-uri)))]
-    (.. (HttpRequest/newBuilder)
-        (uri u)
-        build)))
-
-(defn send!
-  [^HttpClient clt req]
-
-  (.send clt req ))
+  (let [server-uri (:uri client)
+        final-uri (java.net.URI/create (str (uri/join server-uri request-uri)))]
+    (http/request (assoc options :uri final-uri))))
 
 (comment
-
-  (clojure.reflect/reflect (HttpRequest/newBuilder))
-
-  (uri/uri "http://localhost:8081")
-
-  (let [c (client nil)
-        r (request {:server/uri "http://localhost:8081"
-                    :request/uri "api/v1"})]
-    #_(.sendAsync c  )
-    r
-    )
-
-
-  ;; TODO: Support authentication via the following keys
+  ;; TODO: Support authentication
   :auth/username
   :auth/password
 
@@ -56,44 +41,8 @@
   :auth/oauth-token
   :auth/oauth-token-fn)
 
-
-(def ^:private clj-http-key-whitelist
-  [:method :content-type :body :debug?])
-
-
-(defn- request-options
-  [client options]
-  (let [url (str (uri/join (:server/uri client) (:uri options)))
-        req-opts (merge {:url           url
-                         :as            :stream
-                         ;; TODO: Move insecure calculation to wherever
-                         ;;       authentication options are calculated.
-                         :insecure?     true
-                         :save-request? true}
-                        (select-keys options clj-http-key-whitelist))]
-    (if-let [interceptor (:interceptor options)]
-      (interceptor client options req-opts)
-      req-opts)))
-
-
-(defn- build-request
-  [c options]
-  (let [url (str (uri/join (:server/uri client) (:uri options)))
-        req-opts (merge {:url           url
-                         ;; TODO: Move insecure calculation to wherever
-                         ;;       authentication options are calculated.
-                         :insecure?     true
-                         :save-request? true}
-                        (select-keys options clj-http-key-whitelist))]
-    (if-let [interceptor (:interceptor options)]
-      (interceptor client options req-opts)
-      req-opts)
-
-
-
-    ))
-
-
+;; TODO: This should be updated to work more nicely with the BodySubscriber
+;;       idiom that the new HttpClient uses.
 (defn- read-json-stream
   [to-chan ^java.io.InputStream from-stream]
   (loop [rdr (io/reader from-stream)]
@@ -105,68 +54,71 @@
         (recur rdr)))))
 
 
-(deftype Request [chan abortfn]
+(deftype Response [chan abortfn]
   clojure.lang.IDeref
   (deref [this] chan))
 
 
 (defn- abort-fn
-  [^Request req]
-  (.abortfn req))
+  [^Response resp]
+  (.abortfn resp))
 
 
 (defn abort!
-  [req]
-  ((abort-fn req)))
+  [resp]
+  ((abort-fn resp)))
 
-#_(defn request
-  [client options]
+(defn send!
+  [client req]
+  ;; TODO: This can be much better now that JDK11's HttpClient is being used.
+  ;;       Should no longer need to create our own thread, and it may be
+  ;;       possible to implement a BodySubscriber+BodyHandler that directly
+  ;;       produces a chan of results.
   (let [ch (async/chan)
-        p-request (promise)]
+        p-body (promise)]
     (async/thread
       (try
-        (let [req-opts (request-options client options)
-              resp (http/request req-opts)]
-          (deliver p-request (:request resp))
-          (with-open [^java.io.InputStream body (:body resp)]
+        (let [^HttpResponse resp (http/send! (:http-client client) req)]
+          (with-open [^java.io.InputStream body (.body resp)]
+            (deliver p-body body)
             (read-json-stream ch body)))
         (catch Exception e
           (>!! ch {::error e}))
         (finally
           (async/close! ch))))
-    (->Request ch (fn []
-                    (throw (Exception. "abort! cannot be implemented with clj-http-lite. Waiting on GraalVM 19.3, for JDK 11 and the new HTTPClient"))
-                    #_(let [^org.apache.http.client.methods.AbortableHttpRequest req
-                            (:http-req @p-request)]
-                        (.abort req))))))
+    (->Response ch (fn [] (let [body ^java.io.InputStream @p-body]
+                            (.close body))))))
 
 
-(defn update-request-chan
-  [req f & args]
-  (->Request (apply f @req args) (abort-fn req)))
+(defn update-response-chan
+  [resp f & args]
+  (->Response (apply f @resp args) (abort-fn resp)))
 
 
-;; TODO: It may be necessary for `merge-requests` to invalidate the original
-;;       `Request` objects, since using them after this call could be an error.
-(defn merge-requests
+;; TODO: It may be necessary for `merge-responses` to invalidate the original
+;;       `Response` objects, since using them after this call could be an error.
+(defn merge-responses
   [reqs]
   (let [reqs' (vec reqs)]
-    (->Request
+    (->Response
      (async/merge (map deref reqs'))
      (fn [] (run! #(%) (map abort-fn reqs'))))))
 
 
 (comment
 
-  (def c (client "http://localhost:8080"))
+  (def c (client nil))
 
-  (def x (request c
-                  {:method :get
-                   :uri "/api/v1/namespaces/default/configmaps"}))
+  (def x (send! c
+                (request {;; :method :get
+                          :server/uri "http://localhost:8001"
+                          :request/uri "/api/v1/namespaces/default/configmaps"})))
 
-  (def x (merge-requests
+
+  (def x (merge-responses
           [
-           (update-request-chan
+           (update-response-chan
+
             (request c
                      {:method :get
                       :uri "/api/v1/namespaces/default/configmaps/foo"})

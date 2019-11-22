@@ -99,24 +99,23 @@
 
 
 (defn request
-  ([client] (request client nil))
-  ([client options]
-   (let [resource (or (:resource options) (:resource client))
-         ;; FIXME: This is ugly.  I want it to be possible for this to happen in
-         ;;        apply-verb (see note there).
-         options (if (= :create (:verb options))
-                   (dissoc options :object/name)
-                   options)
-         uri (uri/join (make-path resource options)
-                       (:uri options))
-         options (-> options
-                     (assoc :uri uri)
-                     (apply-verb resource)
-                     (dissoc :resource
-                             :verb
-                             :namespace/name
-                             :object/name))]
-     (k/request client options))))
+  [client options]
+  (let [resource (or (:resource options) (:resource client))
+        ;; FIXME: This is ugly.  I want it to be possible for this to happen in
+        ;;        apply-verb (see note there).
+        options (if (= :create (:verb options))
+                  (dissoc options :object/name)
+                  options)
+        uri (uri/join (make-path resource options)
+                      (:uri options))
+        options (-> options
+                    (assoc :uri uri)
+                    (apply-verb resource)
+                    (dissoc :resource
+                            :verb
+                            :namespace/name
+                            :object/name))]
+    (k/request client options)))
 
 
 (defn- list-kind->object-kind
@@ -170,18 +169,21 @@
 
   (list-kind->object-kind "ConfigMapList")
 
-  (def client (specialize (k/make-client "http://localhost:8080")
+  (def client (specialize (k/client {:uri "http://localhost:8001"})
                           configmaps))
 
   (def req (request client {:namespace/name "default"
                             :object/name "foo"
                             :verb :get}))
 
+  (def res (k/send! client req))
+
   (def req (request client {:namespace/name "default"
                             :object/name "baz"
                             :verb :delete}))
+  (def res (k/send! client req))
 
-  (clojure.core.async/<!! @req)
+  (clojure.core.async/<!! @res)
 
   (k/abort! req)
 
